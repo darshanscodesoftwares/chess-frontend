@@ -1,5 +1,5 @@
 // src/pages/arbiter/ArbiterPage.jsx
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams } from "react-router-dom";
 import axiosClient from "../../api/axiosClient";
 
@@ -19,6 +19,9 @@ export default function ArbiterPage() {
     const [results, setResults] = useState({});
     const [loading, setLoading] = useState(true);
     const [status, setStatus] = useState("");
+    const [saving, setSaving] = useState(false);
+    const [lastSaved, setLastSaved] = useState(null);
+    const saveTimeoutRef = useRef(null);
 
     useEffect(() => {
         const loadAssignment = async () => {
@@ -47,8 +50,52 @@ export default function ArbiterPage() {
         loadAssignment();
     }, [token]);
 
+    const autoSave = async (updatedResults) => {
+        if (!assignment) return;
+
+        setSaving(true);
+        setStatus("");
+
+        try {
+            const payload = assignment.pairings.map((p) => ({
+                board: p.board,
+                result: updatedResults[p.board] || "",
+            }));
+
+            const res = await axiosClient.post(
+                `/assignments/by-token/${token}/results`,
+                { results: payload }
+            );
+
+            if (res.data.success) {
+                setLastSaved(new Date());
+                setStatus("Saved");
+                setTimeout(() => setStatus(""), 2000);
+            } else {
+                setStatus("Error saving");
+            }
+        } catch (err) {
+            console.error(err);
+            setStatus("Error saving");
+        } finally {
+            setSaving(false);
+        }
+    };
+
     const handleChange = (board, value) => {
-        setResults((prev) => ({ ...prev, [board]: value }));
+        const updatedResults = { ...results, [board]: value };
+        setResults(updatedResults);
+
+        // Clear any pending autosave
+        if (saveTimeoutRef.current) {
+            clearTimeout(saveTimeoutRef.current);
+        }
+
+        // Autosave immediately per board interaction (as client requested)
+        // Small 300ms delay to avoid double-saves if user quickly changes the same dropdown
+        saveTimeoutRef.current = setTimeout(() => {
+            autoSave(updatedResults);
+        }, 300);
     };
 
     const handleSubmit = async () => {
@@ -99,6 +146,12 @@ export default function ArbiterPage() {
         );
     }
 
+    // Calculate progress analytics
+    const totalBoards = assignment?.pairings.length || 0;
+    const completedBoards = Object.values(results).filter((r) => r !== "").length;
+    const remainingBoards = totalBoards - completedBoards;
+    const completionPercentage = totalBoards > 0 ? Math.round((completedBoards / totalBoards) * 100) : 0;
+
     return (
         <div className="page">
             <h1>Arbiter Result Entry</h1>
@@ -116,6 +169,77 @@ export default function ArbiterPage() {
             </div>
 
             <div className="card">
+                <h2 style={{ marginBottom: "12px", fontSize: "18px" }}>Progress</h2>
+                <div style={{ display: "flex", gap: "24px", marginBottom: "12px" }}>
+                    <div>
+                        <p style={{ margin: "0", fontSize: "13px", color: "#6b7280" }}>
+                            Total Boards
+                        </p>
+                        <p style={{ margin: "4px 0 0 0", fontSize: "24px", fontWeight: "600" }}>
+                            {totalBoards}
+                        </p>
+                    </div>
+                    <div>
+                        <p style={{ margin: "0", fontSize: "13px", color: "#6b7280" }}>
+                            Completed
+                        </p>
+                        <p style={{ margin: "4px 0 0 0", fontSize: "24px", fontWeight: "600", color: "#2250c8" }}>
+                            {completedBoards}
+                        </p>
+                    </div>
+                    <div>
+                        <p style={{ margin: "0", fontSize: "13px", color: "#6b7280" }}>
+                            Remaining
+                        </p>
+                        <p style={{ margin: "4px 0 0 0", fontSize: "24px", fontWeight: "600", color: remainingBoards > 0 ? "#f59e0b" : "#059669" }}>
+                            {remainingBoards}
+                        </p>
+                    </div>
+                    <div>
+                        <p style={{ margin: "0", fontSize: "13px", color: "#6b7280" }}>
+                            Complete
+                        </p>
+                        <p style={{ margin: "4px 0 0 0", fontSize: "24px", fontWeight: "600", color: completionPercentage === 100 ? "#059669" : "#6b7280" }}>
+                            {completionPercentage}%
+                        </p>
+                    </div>
+                </div>
+
+                {/* Progress bar */}
+                <div style={{
+                    width: "100%",
+                    height: "8px",
+                    backgroundColor: "#e5e7eb",
+                    borderRadius: "999px",
+                    overflow: "hidden"
+                }}>
+                    <div style={{
+                        width: `${completionPercentage}%`,
+                        height: "100%",
+                        backgroundColor: completionPercentage === 100 ? "#059669" : "#2250c8",
+                        transition: "width 0.3s ease"
+                    }}></div>
+                </div>
+
+                {completionPercentage === 100 && (
+                    <p style={{ marginTop: "12px", fontSize: "14px", color: "#059669", fontWeight: "500" }}>
+                        ✓ All results entered!
+                    </p>
+                )}
+            </div>
+
+            <div className="card">
+                {saving && (
+                    <p style={{ fontSize: "14px", color: "#6b7280", marginBottom: "8px" }}>
+                        Saving...
+                    </p>
+                )}
+                {!saving && lastSaved && (
+                    <p style={{ fontSize: "14px", color: "#059669", marginBottom: "8px" }}>
+                        ✓ Auto-saved at {lastSaved.toLocaleTimeString()}
+                    </p>
+                )}
+
                 <table className="table">
                     <thead>
                         <tr>
