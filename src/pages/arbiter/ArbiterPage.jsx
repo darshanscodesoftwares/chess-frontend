@@ -98,6 +98,43 @@ export default function ArbiterPage() {
         }, 300);
     };
 
+    // Handle single click on player name: set as WINNER
+    const handlePlayerClick = (board, player) => {
+        // Single click = WIN for clicked player
+        const result = player === "white" ? "1-0" : "0-1";
+        handleChange(board, result);
+    };
+
+    // Handle double click on player name: set as LOSER
+    const handlePlayerDoubleClick = (board, player) => {
+        // Double click = LOSS for clicked player
+        const result = player === "white" ? "0-1" : "1-0";
+        handleChange(board, result);
+    };
+
+    // Helper function to get player cell CSS class based on result
+    const getPlayerCellClass = (board, player) => {
+        const result = results[board] || "";
+        const baseClass = "player-name-cell";
+
+        if (!result || result === "½-½" || result.startsWith("0-0")) {
+            // No result, draw, or double forfeit - no highlighting
+            return baseClass;
+        }
+
+        // Check if this player won or lost
+        if (player === "white") {
+            if (result === "1-0" || result === "1-0F") return `${baseClass} player-winner`;
+            if (result === "0-1" || result === "0-1F") return `${baseClass} player-loser`;
+        } else {
+            // Black player
+            if (result === "0-1" || result === "0-1F") return `${baseClass} player-winner`;
+            if (result === "1-0" || result === "1-0F") return `${baseClass} player-loser`;
+        }
+
+        return baseClass;
+    };
+
     const handleSubmit = async () => {
         if (!assignment) return;
 
@@ -228,50 +265,123 @@ export default function ArbiterPage() {
                 )}
             </div>
 
-            <div className="card">
-                {saving && (
-                    <p style={{ fontSize: "14px", color: "#6b7280", marginBottom: "8px" }}>
-                        Saving...
-                    </p>
-                )}
-                {!saving && lastSaved && (
-                    <p style={{ fontSize: "14px", color: "#059669", marginBottom: "8px" }}>
-                        ✓ Auto-saved at {lastSaved.toLocaleTimeString()}
-                    </p>
-                )}
+            {/* Pending Boards Table */}
+            {assignment.pairings.filter((p) => !results[p.board] || results[p.board] === "").length > 0 && (
+                <div className="card">
+                    <h2 style={{ fontSize: "18px", marginBottom: "10px" }}>Pending Boards</h2>
+                    {saving && (
+                        <p style={{ fontSize: "14px", color: "#6b7280", marginBottom: "8px" }}>
+                            Saving...
+                        </p>
+                    )}
+                    {!saving && lastSaved && (
+                        <p style={{ fontSize: "14px", color: "#059669", marginBottom: "8px" }}>
+                            ✓ Auto-saved at {lastSaved.toLocaleTimeString()}
+                        </p>
+                    )}
 
-                <table className="table">
-                    <thead>
-                        <tr>
-                            <th>Board</th>
-                            <th>White</th>
-                            <th>Black</th>
-                            <th>Result</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {assignment.pairings.map((p) => (
-                            <tr key={p.board}>
-                                <td>{p.board}</td>
-                                <td>{p.playerA}</td>
-                                <td>{p.playerB}</td>
-                                <td>
-                                    <select
-                                        value={results[p.board] || ""}
-                                        onChange={(e) => handleChange(p.board, e.target.value)}
-                                    >
-                                        {RESULT_OPTIONS.map((opt) => (
-                                            <option key={opt.value || "empty"} value={opt.value}>
-                                                {opt.label}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </td>
+                    <table className="table">
+                        <thead>
+                            <tr>
+                                <th>Board</th>
+                                <th>White</th>
+                                <th>Black</th>
+                                <th>Result</th>
                             </tr>
-                        ))}
-                    </tbody>
-                </table>
+                        </thead>
+                        <tbody>
+                            {assignment.pairings
+                                .filter((p) => !results[p.board] || results[p.board] === "")
+                                .map((p) => (
+                                    <tr key={p.board}>
+                                        <td>{p.board}</td>
+                                        <td
+                                            className={getPlayerCellClass(p.board, "white")}
+                                            onClick={() => handlePlayerClick(p.board, "white")}
+                                            onDoubleClick={() => handlePlayerDoubleClick(p.board, "white")}
+                                        >
+                                            {p.playerA}
+                                        </td>
+                                        <td
+                                            className={getPlayerCellClass(p.board, "black")}
+                                            onClick={() => handlePlayerClick(p.board, "black")}
+                                            onDoubleClick={() => handlePlayerDoubleClick(p.board, "black")}
+                                        >
+                                            {p.playerB}
+                                        </td>
+                                        <td>
+                                            <select
+                                                value={results[p.board] || ""}
+                                                onChange={(e) => handleChange(p.board, e.target.value)}
+                                            >
+                                                {RESULT_OPTIONS.map((opt) => (
+                                                    <option key={opt.value || "empty"} value={opt.value}>
+                                                        {opt.label}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </td>
+                                    </tr>
+                                ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
 
+            {/* Completed Boards Table */}
+            {assignment.pairings.filter((p) => results[p.board] && results[p.board] !== "").length > 0 && (
+                <div className="card">
+                    <h2 style={{ fontSize: "18px", marginBottom: "10px" }}>Completed Boards</h2>
+                    <table className="table">
+                        <thead>
+                            <tr>
+                                <th>Board</th>
+                                <th>White</th>
+                                <th>Black</th>
+                                <th>Result</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {assignment.pairings
+                                .filter((p) => results[p.board] && results[p.board] !== "")
+                                .map((p) => (
+                                    <tr key={p.board}>
+                                        <td>{p.board}</td>
+                                        <td
+                                            className={getPlayerCellClass(p.board, "white")}
+                                            onClick={() => handlePlayerClick(p.board, "white")}
+                                            onDoubleClick={() => handlePlayerDoubleClick(p.board, "white")}
+                                        >
+                                            {p.playerA}
+                                        </td>
+                                        <td
+                                            className={getPlayerCellClass(p.board, "black")}
+                                            onClick={() => handlePlayerClick(p.board, "black")}
+                                            onDoubleClick={() => handlePlayerDoubleClick(p.board, "black")}
+                                        >
+                                            {p.playerB}
+                                        </td>
+                                        <td>
+                                            <select
+                                                value={results[p.board] || ""}
+                                                onChange={(e) => handleChange(p.board, e.target.value)}
+                                            >
+                                                {RESULT_OPTIONS.map((opt) => (
+                                                    <option key={opt.value || "empty"} value={opt.value}>
+                                                        {opt.label}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        </td>
+                                    </tr>
+                                ))}
+                        </tbody>
+                    </table>
+                </div>
+            )}
+
+            {/* Submit Button */}
+            <div className="card">
                 <button className="btn-primary-arbiter" onClick={handleSubmit}>
                     Submit Results
                 </button>

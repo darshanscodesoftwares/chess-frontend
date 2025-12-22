@@ -251,6 +251,29 @@ select:focus {
   background: #f3f4ff;
 }
 
+/* Player name highlighting for arbiter result entry */
+.player-name-cell {
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 0.2s ease;
+}
+
+.player-name-cell:hover {
+  background: #f3f4f6;
+}
+
+.player-winner {
+  background-color: #dcfce7 !important;
+  color: #166534;
+  font-weight: 600;
+}
+
+.player-loser {
+  background-color: #fee2e2 !important;
+  color: #991b1b;
+  font-weight: 600;
+}
+
 /* Grid */
 .grid-3 {
   display: grid;
