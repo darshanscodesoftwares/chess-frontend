@@ -111,7 +111,7 @@
 // }
 
 // src/pages/admin/ViewPairings.jsx
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import axiosClient from "../../api/axiosClient";
 import Table from "../../components/Table";
 import useTournamentStore from "../../store/useTournamentStore";
@@ -119,6 +119,26 @@ import useTournamentStore from "../../store/useTournamentStore";
 export default function ViewPairings() {
   const [url, setUrl] = useState("");
   const [loading, setLoading] = useState(false);
+  const [tournaments, setTournaments] = useState([]);
+  const [loadingTournaments, setLoadingTournaments] = useState(false);
+
+  // Load saved tournaments on mount
+  useEffect(() => {
+    const loadTournaments = async () => {
+      setLoadingTournaments(true);
+      try {
+        const res = await axiosClient.get("/tournaments");
+        if (res.data.success) {
+          setTournaments(res.data.tournaments || []);
+        }
+      } catch (err) {
+        console.error("Error loading tournaments:", err);
+      } finally {
+        setLoadingTournaments(false);
+      }
+    };
+    loadTournaments();
+  }, []);
 
   // Zustand setters
   const setTournamentKeys = useTournamentStore((s) => s.setTournamentKeys);
@@ -129,6 +149,20 @@ export default function ViewPairings() {
   const sidKey = useTournamentStore((s) => s.sidKey);
   const round = useTournamentStore((s) => s.round);
   const pairings = useTournamentStore((s) => s.pairings);
+
+  // Handle tournament selection from dropdown - auto-fill URL
+  const handleTournamentSelect = (e) => {
+    const selectedDbKey = e.target.value;
+    if (!selectedDbKey) {
+      setUrl("");
+      return;
+    }
+
+    const selectedTournament = tournaments.find((t) => t.dbKey === selectedDbKey);
+    if (selectedTournament && selectedTournament.baseLink) {
+      setUrl(selectedTournament.baseLink);
+    }
+  };
 
   const handleFetch = async () => {
     if (!url.trim()) {
@@ -192,12 +226,27 @@ export default function ViewPairings() {
       <h1>View Pairings</h1>
 
       <div className="card">
+        {/* Tournament Dropdown - Auto-fill URL */}
+        <label className="field-label">Saved Tournaments</label>
+        <select
+          onChange={handleTournamentSelect}
+          disabled={loadingTournaments}
+          style={{ marginBottom: "12px" }}
+        >
+          <option value="">Select a saved tournament...</option>
+          {tournaments.map((t) => (
+            <option key={t.dbKey} value={t.dbKey}>
+              {t.tournamentName} ({t.dbKey})
+            </option>
+          ))}
+        </select>
+
         <label className="field-label">Customize List URL</label>
 
         <div className="form-row">
           <input
             type="text"
-            placeholder="Paste Chess-Results Customize List URL"
+            placeholder="Paste Chess-Results Customize List URL (or select from dropdown above)"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
           />

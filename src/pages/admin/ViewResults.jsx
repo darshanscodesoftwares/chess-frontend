@@ -1,5 +1,5 @@
 // src/pages/admin/ViewResults.jsx
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import axiosClient from "../../api/axiosClient";
 import Table from "../../components/Table"; // reuse your table component
 
@@ -7,6 +7,26 @@ export default function ViewResults() {
     const [dbKey, setDbKey] = useState("");
     const [round, setRound] = useState("");
     const [merged, setMerged] = useState([]);
+    const [tournaments, setTournaments] = useState([]);
+    const [loadingTournaments, setLoadingTournaments] = useState(false);
+
+    // Load available tournaments on mount
+    useEffect(() => {
+        const loadTournaments = async () => {
+            setLoadingTournaments(true);
+            try {
+                const res = await axiosClient.get("/tournaments");
+                if (res.data.success) {
+                    setTournaments(res.data.tournaments || []);
+                }
+            } catch (err) {
+                console.error("Error loading tournaments:", err);
+            } finally {
+                setLoadingTournaments(false);
+            }
+        };
+        loadTournaments();
+    }, []);
 
     const loadResults = async () => {
         if (!dbKey || !round) {
@@ -72,10 +92,27 @@ export default function ViewResults() {
         <h1>View Merged Results</h1>
 
         <div className="card">
+            {/* Dropdown to select from saved tournaments */}
+            <label className="field-label">Saved Tournaments</label>
+            <select
+                onChange={(e) => setDbKey(e.target.value)}
+                disabled={loadingTournaments}
+                style={{ marginBottom: "12px" }}
+            >
+                <option value="">Select a saved tournament...</option>
+                {tournaments.map((t) => (
+                    <option key={t.dbKey} value={t.dbKey}>
+                        {t.tournamentName ? `${t.tournamentName} (${t.dbKey})` : `${t.dbKey} — ${new Date(t.createdAt).toLocaleDateString()}`}
+                    </option>
+                ))}
+            </select>
+
+            {/* Manual input fields */}
+            <label className="field-label">DB Key & Round</label>
             <div className="form-row">
                 <input
                     type="text"
-                    placeholder="DB Key"
+                    placeholder="DB Key (or select from dropdown above)"
                     value={dbKey}
                     onChange={(e) => setDbKey(e.target.value)}
                 />

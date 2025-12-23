@@ -22,6 +22,7 @@ export default function ArbiterPage() {
     const [saving, setSaving] = useState(false);
     const [lastSaved, setLastSaved] = useState(null);
     const saveTimeoutRef = useRef(null);
+    const clickTimeoutRef = useRef({}); // Store click timers per board+player
 
     useEffect(() => {
         const loadAssignment = async () => {
@@ -98,16 +99,35 @@ export default function ArbiterPage() {
         }, 300);
     };
 
-    // Handle single click on player name: set as WINNER
+    // Handle single click on player name: set as WINNER (with delay to allow double-click)
     const handlePlayerClick = (board, player) => {
-        // Single click = WIN for clicked player
-        const result = player === "white" ? "1-0" : "0-1";
-        handleChange(board, result);
+        const clickKey = `${board}-${player}`;
+
+        // Clear any existing timer for this cell
+        if (clickTimeoutRef.current[clickKey]) {
+            clearTimeout(clickTimeoutRef.current[clickKey]);
+        }
+
+        // Start timer for single-click (250ms delay)
+        clickTimeoutRef.current[clickKey] = setTimeout(() => {
+            // Single click = WIN for clicked player
+            const result = player === "white" ? "1-0" : "0-1";
+            handleChange(board, result);
+            delete clickTimeoutRef.current[clickKey];
+        }, 600);
     };
 
     // Handle double click on player name: set as LOSER
     const handlePlayerDoubleClick = (board, player) => {
-        // Double click = LOSS for clicked player
+        const clickKey = `${board}-${player}`;
+
+        // Cancel pending single-click timer
+        if (clickTimeoutRef.current[clickKey]) {
+            clearTimeout(clickTimeoutRef.current[clickKey]);
+            delete clickTimeoutRef.current[clickKey];
+        }
+
+        // Double click = LOSS for clicked player (executes immediately)
         const result = player === "white" ? "0-1" : "1-0";
         handleChange(board, result);
     };
