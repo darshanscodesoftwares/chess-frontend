@@ -22,6 +22,9 @@ export default function ArbiterPage() {
     const [status, setStatus] = useState("");
     const [saving, setSaving] = useState(false);
     const [lastSaved, setLastSaved] = useState(null);
+    const [isSubmitted, setIsSubmitted] = useState(false);
+    const [submittedAt, setSubmittedAt] = useState(null);
+    const [submitting, setSubmitting] = useState(false);
     const saveTimeoutRef = useRef(null);
     const clickTimeoutRef = useRef({}); // Store click timers per board+player
 
@@ -36,6 +39,10 @@ export default function ArbiterPage() {
                 }
                 const a = res.data.assignment;
                 setAssignment(a);
+
+                // 🔐 Check if already submitted
+                setIsSubmitted(a.isSubmitted || false);
+                setSubmittedAt(a.submittedAt || null);
 
                 const existing = {};
                 (a.results || []).forEach((r) => {
@@ -53,7 +60,7 @@ export default function ArbiterPage() {
     }, [token]);
 
     const autoSave = async (updatedResults) => {
-        if (!assignment) return;
+        if (!assignment || isSubmitted) return;
 
         setSaving(true);
         setStatus("");
@@ -78,13 +85,22 @@ export default function ArbiterPage() {
             }
         } catch (err) {
             console.error(err);
-            setStatus("Error saving");
+            // Handle 403 (already submitted)
+            if (err.response?.status === 403) {
+                setIsSubmitted(true);
+                setStatus("Results already submitted - editing disabled");
+            } else {
+                setStatus("Error saving");
+            }
         } finally {
             setSaving(false);
         }
     };
 
     const handleChange = (board, value) => {
+        // 🔐 Block changes if already submitted
+        if (isSubmitted) return;
+
         const updatedResults = { ...results, [board]: value };
         setResults(updatedResults);
 
@@ -93,25 +109,23 @@ export default function ArbiterPage() {
             clearTimeout(saveTimeoutRef.current);
         }
 
-        // Autosave immediately per board interaction (as client requested)
-        // Small 300ms delay to avoid double-saves if user quickly changes the same dropdown
+        // Autosave immediately per board interaction
         saveTimeoutRef.current = setTimeout(() => {
             autoSave(updatedResults);
         }, 300);
     };
 
-    // Handle single click on player name: set as WINNER (with delay to allow double-click)
+    // Handle single click on player name: set as WINNER
     const handlePlayerClick = (board, player) => {
+        if (isSubmitted) return; // 🔐 Block if submitted
+
         const clickKey = `${board}-${player}`;
 
-        // Clear any existing timer for this cell
         if (clickTimeoutRef.current[clickKey]) {
             clearTimeout(clickTimeoutRef.current[clickKey]);
         }
 
-        // Start timer for single-click (250ms delay)
         clickTimeoutRef.current[clickKey] = setTimeout(() => {
-            // Single click = WIN for clicked player
             const result = player === "white" ? "1-0" : "0-1";
             handleChange(board, result);
             delete clickTimeoutRef.current[clickKey];
@@ -120,15 +134,15 @@ export default function ArbiterPage() {
 
     // Handle double click on player name: set as LOSER
     const handlePlayerDoubleClick = (board, player) => {
+        if (isSubmitted) return; // 🔐 Block if submitted
+
         const clickKey = `${board}-${player}`;
 
-        // Cancel pending single-click timer
         if (clickTimeoutRef.current[clickKey]) {
             clearTimeout(clickTimeoutRef.current[clickKey]);
             delete clickTimeoutRef.current[clickKey];
         }
 
-        // Double click = LOSS for clicked player (executes immediately)
         const result = player === "white" ? "0-1" : "1-0";
         handleChange(board, result);
     };
@@ -136,19 +150,16 @@ export default function ArbiterPage() {
     // Helper function to get player cell CSS class based on result
     const getPlayerCellClass = (board, player) => {
         const result = results[board] || "";
-        const baseClass = "player-name-cell";
+        const baseClass = isSubmitted ? "player-name-cell-readonly" : "player-name-cell";
 
         if (!result || result === "1/2" || result.startsWith("0-0")) {
-            // No result, draw, or double forfeit - no highlighting
             return baseClass;
         }
 
-        // Check if this player won or lost
         if (player === "white") {
             if (result === "1-0" || result === "1-0F") return `${baseClass} player-winner`;
             if (result === "0-1" || result === "0-1F") return `${baseClass} player-loser`;
         } else {
-            // Black player
             if (result === "0-1" || result === "0-1F") return `${baseClass} player-winner`;
             if (result === "1-0" || result === "1-0F") return `${baseClass} player-loser`;
         }
@@ -156,8 +167,9 @@ export default function ArbiterPage() {
         return baseClass;
     };
 
-    const handleSubmit = async () => {
-        if (!assignment) return;
+    // 🔐 NEW: Final submit handler - locks results permanently
+    const handleFinalSubmit = async () => {
+        if (!assignment || isSubmitted) return;
 
         const payload = assignment.pairings.map((p) => ({
             board: p.board,
@@ -167,24 +179,48 @@ export default function ArbiterPage() {
         const incomplete = payload.some((p) => !p.result);
         if (incomplete) {
             const ok = window.confirm(
-                "Some boards have no result selected. Submit anyway?"
+                "Some boards have no result selected. Submit anyway?\n\n⚠️ WARNING: After submission, you will NOT be able to edit results!"
             );
             if (!ok) return;
+        } else {
+            const confirm = window.confirm(
+                "Are you sure you want to submit these results?\n\n⚠️ WARNING: After submission, you will NOT be able to edit results!"
+            );
+            if (!confirm) return;
         }
 
+        setSubmitting(true);
+        setStatus("");
+
         try {
-            const res = await axiosClient.post(
+            // First save the current results
+            await axiosClient.post(
                 `/assignments/by-token/${token}/results`,
                 { results: payload }
             );
-            if (res.data.success) {
-                setStatus("Results saved successfully!");
+
+            // Then lock the submission
+            const submitRes = await axiosClient.post(
+                `/assignments/by-token/${token}/submit`
+            );
+
+            if (submitRes.data.success) {
+                setIsSubmitted(true);
+                setSubmittedAt(submitRes.data.submittedAt);
+                setStatus("✅ Results submitted successfully!");
             } else {
-                setStatus(res.data.error || "Error saving results.");
+                setStatus(submitRes.data.error || "Error submitting results.");
             }
         } catch (err) {
             console.error(err);
-            setStatus("Error submitting results.");
+            if (err.response?.status === 403) {
+                setIsSubmitted(true);
+                setStatus("Results were already submitted.");
+            } else {
+                setStatus("Error submitting results.");
+            }
+        } finally {
+            setSubmitting(false);
         }
     };
 
@@ -213,6 +249,30 @@ export default function ArbiterPage() {
     return (
         <div className="page">
             <h1>Arbiter Result Entry</h1>
+
+            {/* 🔐 Submitted Banner */}
+            {isSubmitted && (
+                <div className="card" style={{
+                    backgroundColor: "#dcfce7",
+                    border: "2px solid #16a34a",
+                    marginBottom: "16px"
+                }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                        <span style={{ fontSize: "24px" }}>🔐</span>
+                        <div>
+                            <p style={{ margin: 0, fontWeight: "600", color: "#166534", fontSize: "16px" }}>
+                                Results Submitted
+                            </p>
+                            <p style={{ margin: "4px 0 0 0", color: "#166534", fontSize: "14px" }}>
+                                Submitted on {submittedAt ? new Date(submittedAt).toLocaleString() : "N/A"}
+                            </p>
+                            <p style={{ margin: "4px 0 0 0", color: "#166534", fontSize: "13px" }}>
+                                Results are locked and cannot be edited.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             <div className="card small-info">
                 <p>
@@ -279,9 +339,9 @@ export default function ArbiterPage() {
                     }}></div>
                 </div>
 
-                {completionPercentage === 100 && (
+                {completionPercentage === 100 && !isSubmitted && (
                     <p style={{ marginTop: "12px", fontSize: "14px", color: "#059669", fontWeight: "500" }}>
-                        ✓ All results entered!
+                        ✓ All results entered! Ready to submit.
                     </p>
                 )}
             </div>
@@ -290,12 +350,12 @@ export default function ArbiterPage() {
             {assignment.pairings.filter((p) => !results[p.board] || results[p.board] === "").length > 0 && (
                 <div className="card">
                     <h2 style={{ fontSize: "18px", marginBottom: "10px" }}>Pending Boards</h2>
-                    {saving && (
+                    {!isSubmitted && saving && (
                         <p style={{ fontSize: "14px", color: "#6b7280", marginBottom: "8px" }}>
                             Saving...
                         </p>
                     )}
-                    {!saving && lastSaved && (
+                    {!isSubmitted && !saving && lastSaved && (
                         <p style={{ fontSize: "14px", color: "#059669", marginBottom: "8px" }}>
                             ✓ Auto-saved at {lastSaved.toLocaleTimeString()}
                         </p>
@@ -318,15 +378,17 @@ export default function ArbiterPage() {
                                         <td>{p.board}</td>
                                         <td
                                             className={getPlayerCellClass(p.board, "white")}
-                                            onClick={() => handlePlayerClick(p.board, "white")}
-                                            onDoubleClick={() => handlePlayerDoubleClick(p.board, "white")}
+                                            onClick={() => !isSubmitted && handlePlayerClick(p.board, "white")}
+                                            onDoubleClick={() => !isSubmitted && handlePlayerDoubleClick(p.board, "white")}
+                                            style={{ cursor: isSubmitted ? "default" : "pointer" }}
                                         >
                                             {p.playerA}
                                         </td>
                                         <td
                                             className={getPlayerCellClass(p.board, "black")}
-                                            onClick={() => handlePlayerClick(p.board, "black")}
-                                            onDoubleClick={() => handlePlayerDoubleClick(p.board, "black")}
+                                            onClick={() => !isSubmitted && handlePlayerClick(p.board, "black")}
+                                            onDoubleClick={() => !isSubmitted && handlePlayerDoubleClick(p.board, "black")}
+                                            style={{ cursor: isSubmitted ? "default" : "pointer" }}
                                         >
                                             {p.playerB}
                                         </td>
@@ -334,6 +396,8 @@ export default function ArbiterPage() {
                                             <select
                                                 value={results[p.board] || ""}
                                                 onChange={(e) => handleChange(p.board, e.target.value)}
+                                                disabled={isSubmitted}
+                                                style={isSubmitted ? { opacity: 0.6, cursor: "not-allowed" } : {}}
                                             >
                                                 {RESULT_OPTIONS.map((opt) => (
                                                     <option key={opt.value || "empty"} value={opt.value}>
@@ -370,15 +434,17 @@ export default function ArbiterPage() {
                                         <td>{p.board}</td>
                                         <td
                                             className={getPlayerCellClass(p.board, "white")}
-                                            onClick={() => handlePlayerClick(p.board, "white")}
-                                            onDoubleClick={() => handlePlayerDoubleClick(p.board, "white")}
+                                            onClick={() => !isSubmitted && handlePlayerClick(p.board, "white")}
+                                            onDoubleClick={() => !isSubmitted && handlePlayerDoubleClick(p.board, "white")}
+                                            style={{ cursor: isSubmitted ? "default" : "pointer" }}
                                         >
                                             {p.playerA}
                                         </td>
                                         <td
                                             className={getPlayerCellClass(p.board, "black")}
-                                            onClick={() => handlePlayerClick(p.board, "black")}
-                                            onDoubleClick={() => handlePlayerDoubleClick(p.board, "black")}
+                                            onClick={() => !isSubmitted && handlePlayerClick(p.board, "black")}
+                                            onDoubleClick={() => !isSubmitted && handlePlayerDoubleClick(p.board, "black")}
+                                            style={{ cursor: isSubmitted ? "default" : "pointer" }}
                                         >
                                             {p.playerB}
                                         </td>
@@ -386,6 +452,8 @@ export default function ArbiterPage() {
                                             <select
                                                 value={results[p.board] || ""}
                                                 onChange={(e) => handleChange(p.board, e.target.value)}
+                                                disabled={isSubmitted}
+                                                style={isSubmitted ? { opacity: 0.6, cursor: "not-allowed" } : {}}
                                             >
                                                 {RESULT_OPTIONS.map((opt) => (
                                                     <option key={opt.value || "empty"} value={opt.value}>
@@ -401,13 +469,30 @@ export default function ArbiterPage() {
                 </div>
             )}
 
-            {/* Submit Button */}
-            <div className="card">
-                <button className="btn-primary-arbiter" onClick={handleSubmit}>
-                    Submit Results
-                </button>
-                {status && <p className="status-text">{status}</p>}
-            </div>
+            {/* Submit Button - Only show if NOT submitted */}
+            {!isSubmitted && (
+                <div className="card">
+                    <button
+                        className="btn-primary-arbiter"
+                        onClick={handleFinalSubmit}
+                        disabled={submitting}
+                        style={submitting ? { opacity: 0.6, cursor: "not-allowed" } : {}}
+                    >
+                        {submitting ? "Submitting..." : "🔐 Submit Results (Final)"}
+                    </button>
+                    <p style={{ fontSize: "13px", color: "#6b7280", marginTop: "8px" }}>
+                        ⚠️ After submission, results cannot be edited.
+                    </p>
+                    {status && <p className="status-text">{status}</p>}
+                </div>
+            )}
+
+            {/* Status message for submitted state */}
+            {isSubmitted && status && (
+                <div className="card">
+                    <p className="status-text">{status}</p>
+                </div>
+            )}
         </div>
     );
 }
