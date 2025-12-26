@@ -111,7 +111,7 @@
 // }
 
 // src/pages/admin/ViewPairings.jsx
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import axiosClient from "../../api/axiosClient";
 import Table from "../../components/Table";
 import useTournamentStore from "../../store/useTournamentStore";
@@ -121,6 +121,7 @@ export default function ViewPairings() {
   const [loading, setLoading] = useState(false);
   const [tournaments, setTournaments] = useState([]);
   const [loadingTournaments, setLoadingTournaments] = useState(false);
+  const fetchInProgress = useRef(false); // Prevent double-clicks
 
   // Load saved tournaments on mount
   useEffect(() => {
@@ -165,11 +166,18 @@ export default function ViewPairings() {
   };
 
   const handleFetch = async () => {
+    // Prevent double-clicks using ref (instant check, no React state delay)
+    if (fetchInProgress.current) {
+      console.log("Fetch already in progress, ignoring duplicate click");
+      return;
+    }
+
     if (!url.trim()) {
       alert("Please paste the Customize List URL.");
       return;
     }
 
+    fetchInProgress.current = true;
     setLoading(true);
 
     try {
@@ -209,8 +217,14 @@ export default function ViewPairings() {
       });
     } catch (err) {
       console.error(err);
-      alert("Error fetching data");
+      // Handle 429 (scraping in progress) gracefully
+      if (err.response?.status === 429) {
+        alert("Scraping is already in progress. Please wait and try again.");
+      } else {
+        alert("Error fetching data. Please try again.");
+      }
     } finally {
+      fetchInProgress.current = false;
       setLoading(false);
     }
   };
