@@ -1,115 +1,3 @@
-// // src/pages/admin/ViewPairings.jsx
-// import { useState } from "react";
-// import axiosClient from "../../api/axiosClient";
-// import Table from "../../components/Table";
-// import useTournamentStore from "../../store/useTournamentStore";
-
-// export default function ViewPairings() {
-//   const [url, setUrl] = useState("");
-//   const [loading, setLoading] = useState(false);
-
-//   // Zustand store setters
-//   const setTournamentKeys = useTournamentStore((s) => s.setTournamentKeys);
-//   const setPairingsStore = useTournamentStore((s) => s.setPairings);
-
-//   // Zustand state (only for display)
-//   const dbKey = useTournamentStore((s) => s.dbKey);
-//   const sidKey = useTournamentStore((s) => s.sidKey);
-//   const round = useTournamentStore((s) => s.round);
-//   const pairings = useTournamentStore((s) => s.pairings);
-
-//   const handleFetch = async () => {
-//     if (!url.trim()) {
-//       alert("Please paste the Customize List URL.");
-//       return;
-//     }
-
-//     setLoading(true);
-
-//     try {
-//       // STEP 1 — Get Keys
-//       const keysRes = await axiosClient.get("/tournament/keys", {
-//         params: { url },
-//       });
-
-//       if (!keysRes.data.success) {
-//         alert("Error fetching keys");
-//         return;
-//       }
-
-//       const { dbKey: db, sidKey: sid } = keysRes.data;
-
-//       // Save global
-//       setTournamentKeys({ dbKey: db, sidKey: sid });
-
-//       // STEP 2 — Fetch Pairings
-//       const pairRes = await axiosClient.post("/tournament/pairings", {
-//         dbKey: db,
-//         sidKey: sid,
-//       });
-
-//       if (!pairRes.data.success) {
-//         alert("Error fetching pairings");
-//         return;
-//       }
-
-//       // Save global pairing list
-//       setPairingsStore({
-//         round: pairRes.data.round,
-//         pairings: pairRes.data.pairings || [],
-//       });
-
-//     } catch (err) {
-//       console.error(err);
-//       alert("Error fetching data");
-//     } finally {
-//       setLoading(false);
-//     }
-//   };
-
-//   const columns = [
-//     { header: "Board", accessor: "board" },
-//     { header: "White", accessor: "playerA" },
-//     { header: "Black", accessor: "playerB" },
-//   ];
-
-//   return (
-//     <div className="page">
-//       <h1>View Pairings</h1>
-
-//       <div className="card">
-//         <label className="field-label">Customize List URL</label>
-//         <div className="form-row">
-//           <input
-//             type="text"
-//             placeholder="Paste Chess-Results Customize List URL"
-//             value={url}
-//             onChange={(e) => setUrl(e.target.value)}
-//           />
-//           <button className="btn-primary" onClick={handleFetch} disabled={loading}>
-//             {loading ? "Loading..." : "Fetch Keys & Pairings"}
-//           </button>
-//         </div>
-
-//         {dbKey && (
-//           <div className="keys-display">
-//             <p><strong>Database Key:</strong> {dbKey}</p>
-//             <p><strong>SID Key:</strong> {sidKey}</p>
-//             <p><strong>Round:</strong> {round || "Unknown"}</p>
-//           </div>
-//         )}
-//       </div>
-
-//       {pairings.length > 0 && (
-//         <div className="card">
-//           <h2>Round Pairings</h2>
-//           <Table columns={columns} data={pairings} />
-//         </div>
-//       )}
-//     </div>
-//   );
-// }
-
 // src/pages/admin/ViewPairings.jsx
 import { useState, useEffect, useRef } from "react";
 import axiosClient from "../../api/axiosClient";
@@ -121,7 +9,10 @@ export default function ViewPairings() {
   const [loading, setLoading] = useState(false);
   const [tournaments, setTournaments] = useState([]);
   const [loadingTournaments, setLoadingTournaments] = useState(false);
-  const fetchInProgress = useRef(false); // Prevent double-clicks
+  const [statusMessage, setStatusMessage] = useState("");
+  const [retryCountdown, setRetryCountdown] = useState(0);
+  const fetchInProgress = useRef(false);
+  const countdownRef = useRef(null);
 
   // Load saved tournaments on mount
   useEffect(() => {
@@ -165,6 +56,38 @@ export default function ViewPairings() {
     }
   };
 
+  // Clear any existing countdown
+  const clearCountdown = () => {
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current);
+      countdownRef.current = null;
+    }
+    setRetryCountdown(0);
+  };
+
+  // Start countdown timer (in seconds)
+  const startCountdown = (seconds) => {
+    clearCountdown();
+    setRetryCountdown(seconds);
+
+    countdownRef.current = setInterval(() => {
+      setRetryCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(countdownRef.current);
+          countdownRef.current = null;
+          setStatusMessage("");
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  // Cleanup countdown on unmount
+  useEffect(() => {
+    return () => clearCountdown();
+  }, []);
+
   const handleFetch = async () => {
     // Prevent double-clicks using ref (instant check, no React state delay)
     if (fetchInProgress.current) {
@@ -173,21 +96,24 @@ export default function ViewPairings() {
     }
 
     if (!url.trim()) {
-      alert("Please paste the Customize List URL.");
+      setStatusMessage("Please paste the Customize List URL.");
       return;
     }
 
     fetchInProgress.current = true;
     setLoading(true);
+    setStatusMessage("Fetching tournament data...");
+    clearCountdown();
 
     try {
       /* ------------------ STEP 1: Get Keys ------------------ */
+      setStatusMessage("Getting tournament keys...");
       const keysRes = await axiosClient.get("/tournament/keys", {
         params: { url },
       });
 
       if (!keysRes.data.success) {
-        alert("Error fetching keys");
+        setStatusMessage("Error fetching keys. Please check the URL.");
         return;
       }
 
@@ -197,6 +123,7 @@ export default function ViewPairings() {
       setTournamentKeys({ dbKey: db, sidKey: sid });
 
       /* ------------------ STEP 2: Get Pairings + ROUND ------------------ */
+      setStatusMessage("Fetching pairings (this may take a moment)...");
       const pairRes = await axiosClient.post("/tournament/pairings", {
         dbKey: db,
         sidKey: sid,
@@ -204,7 +131,7 @@ export default function ViewPairings() {
       });
 
       if (!pairRes.data.success) {
-        alert("Error fetching pairings");
+        setStatusMessage("Error fetching pairings.");
         return;
       }
 
@@ -215,13 +142,19 @@ export default function ViewPairings() {
         round: detectedRound,
         pairings: pairRes.data.pairings || [],
       });
+
+      setStatusMessage(`Successfully loaded Round ${detectedRound} pairings!`);
+
+      // Clear success message after 3 seconds
+      setTimeout(() => setStatusMessage(""), 3000);
     } catch (err) {
       console.error(err);
-      // Handle 429 (scraping in progress) gracefully
+      // Handle 429 (scraping in progress) gracefully with countdown
       if (err.response?.status === 429) {
-        alert("Scraping is already in progress. Please wait and try again.");
+        setStatusMessage("Server is busy scraping data. Please wait...");
+        startCountdown(15); // 15 second countdown before allowing retry
       } else {
-        alert("Error fetching data. Please try again.");
+        setStatusMessage("Error fetching data. Please try again.");
       }
     } finally {
       fetchInProgress.current = false;
@@ -265,10 +198,59 @@ export default function ViewPairings() {
             onChange={(e) => setUrl(e.target.value)}
           />
 
-          <button className="btn-primary" onClick={handleFetch} disabled={loading}>
-            {loading ? "Loading..." : "Fetch Keys & Pairings"}
+          <button
+            className="btn-primary"
+            onClick={handleFetch}
+            disabled={loading || retryCountdown > 0}
+          >
+            {loading
+              ? "Loading..."
+              : retryCountdown > 0
+              ? `Wait ${retryCountdown}s...`
+              : "Fetch Keys & Pairings"}
           </button>
         </div>
+
+        {/* Status Message Display */}
+        {statusMessage && (
+          <div
+            style={{
+              marginTop: "12px",
+              padding: "10px 14px",
+              borderRadius: "6px",
+              backgroundColor: statusMessage.includes("Error")
+                ? "#fef2f2"
+                : statusMessage.includes("Successfully")
+                ? "#f0fdf4"
+                : statusMessage.includes("busy")
+                ? "#fffbeb"
+                : "#eff6ff",
+              border: `1px solid ${
+                statusMessage.includes("Error")
+                  ? "#fecaca"
+                  : statusMessage.includes("Successfully")
+                  ? "#bbf7d0"
+                  : statusMessage.includes("busy")
+                  ? "#fde68a"
+                  : "#bfdbfe"
+              }`,
+              color: statusMessage.includes("Error")
+                ? "#991b1b"
+                : statusMessage.includes("Successfully")
+                ? "#166534"
+                : statusMessage.includes("busy")
+                ? "#92400e"
+                : "#1e40af",
+            }}
+          >
+            {statusMessage}
+            {retryCountdown > 0 && (
+              <span style={{ marginLeft: "8px", fontWeight: "bold" }}>
+                Retry in {retryCountdown}s
+              </span>
+            )}
+          </div>
+        )}
 
         {dbKey && (
           <div className="keys-display">
