@@ -3,14 +3,15 @@ import { useEffect, useState, useRef } from "react";
 import { useParams } from "react-router-dom";
 import axiosClient from "../../api/axiosClient";
 
+// ✅ Swiss-Manager requires "1/2" for draws (NOT "½-½")
 const RESULT_OPTIONS = [
     { value: "", label: "Select" },
     { value: "1-0", label: "1 - 0" },
-    { value: "½-½", label: "Draw" },
+    { value: "1/2", label: "½ - ½" },  // Display: ½-½, Store: 1/2
     { value: "0-1", label: "0 - 1" },
-    { value: "1-0F", label: "1f-0f" },
-    { value: "0-1F", label: "0f-1f" },
-    { value: "0-0F", label: "0f-0f" },
+    { value: "1-0F", label: "1f - 0f" },
+    { value: "0-1F", label: "0f - 1f" },
+    { value: "0-0F", label: "0f - 0f" },
 ];
 
 export default function ArbiterPage() {
@@ -137,7 +138,7 @@ export default function ArbiterPage() {
         const result = results[board] || "";
         const baseClass = "player-name-cell";
 
-        if (!result || result === "½-½" || result.startsWith("0-0")) {
+        if (!result || result === "1/2" || result.startsWith("0-0")) {
             // No result, draw, or double forfeit - no highlighting
             return baseClass;
         }
